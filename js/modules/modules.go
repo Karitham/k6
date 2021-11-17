@@ -118,7 +118,7 @@ type VU interface {
 	// Reserve needs a better name
 	// MUST only be called while absolutely certain that something will not let the iteration end between the start and
 	// end of the call
-	Reserve() func(func()) bool
+	Reserve() func(func() error) bool
 
 	// sealing field will help probably with pointing users that they just need to embed this in their Instance
 	// implementations

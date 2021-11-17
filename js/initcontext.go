@@ -179,7 +179,7 @@ func (m *moduleVUImpl) Runtime() *goja.Runtime {
 	return m.rt
 }
 
-func (m *moduleVUImpl) Reserve() func(func()) bool {
+func (m *moduleVUImpl) Reserve() func(func() error) bool {
 	return m.loop.reserve()
 }
 

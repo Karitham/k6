@@ -60,7 +60,7 @@ func (m *VU) Runtime() *goja.Runtime {
 }
 
 // Reserve is not really implemented
-func (m *VU) Reserve() func(f func()) bool {
+func (m *VU) Reserve() func(f func() error) bool {
 	// TODO Implement
 	return nil
 }

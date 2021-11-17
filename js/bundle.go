@@ -342,7 +342,7 @@ func (b *Bundle) instantiate(logger logrus.FieldLogger, rt *goja.Runtime, init *
 			logger.Warnf("Uncaught (in Promise) %s\n %s", p.Result(), buf.String())
 		}
 	})
-	_ = rt.Set("setTimeout", func(f func(), t float64) {
+	_ = rt.Set("setTimeout", func(f func() error, t float64) {
 		// TODO checks and fixes
 		// TODO maybe really return something to use with `clearTimeout
 		// TODO support arguments ... maybe
@@ -369,8 +369,10 @@ func (b *Bundle) instantiate(logger logrus.FieldLogger, rt *goja.Runtime, init *
 	ctx := common.WithInitEnv(context.Background(), initenv)
 	*init.ctxPtr = common.WithRuntime(ctx, rt)
 	unbindInit := common.BindToGlobal(rt, common.Bind(rt, init, init.ctxPtr))
-	var err error
-	init.loop.start(*init.ctxPtr, func() { _, err = rt.RunProgram(b.Program) })
+	err := init.loop.start(func() error {
+		_, err := rt.RunProgram(b.Program)
+		return err
+	})
 	if err != nil {
 		var exception *goja.Exception
 		if errors.As(err, &exception) {

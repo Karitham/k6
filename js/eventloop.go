@@ -21,14 +21,13 @@
 package js
 
 import (
-	"context"
 	"sync"
 )
 
 // an event loop
 type eventLoop struct {
 	lock          sync.Mutex
-	queue         []func()
+	queue         []func() error
 	started       int
 	wakeupCh      chan struct{} // maybe use sync.Cond ?
 	reservedCount int
@@ -53,13 +52,13 @@ func (e *eventLoop) wakeup() {
 // Even if it's queued it doesn't mean that it will definitely be executed.
 // this should be used instead of MakeHandledPromise if a promise will not be returned
 // TODO better name
-func (e *eventLoop) reserve() func(func()) bool {
+func (e *eventLoop) reserve() func(func() error) bool {
 	e.lock.Lock()
 	e.reservedCount++
 	started := e.started
 	e.lock.Unlock()
 
-	return func(f func()) bool {
+	return func(f func() error) bool {
 		e.lock.Lock()
 		if started != e.started {
 			e.lock.Unlock()
@@ -74,48 +73,35 @@ func (e *eventLoop) reserve() func(func()) bool {
 }
 
 // start will run the event loop until it's empty and there are no reserved spots
-// or the context is done. The provided function will be queued.
+// or a queued function returns an error. The provided function will be queued.
 // After it returns any Reserved function from this start will not be queued even if the eventLoop is restarted
 //nolint:cyclop
-func (e *eventLoop) start(ctx context.Context, f func()) {
+func (e *eventLoop) start(f func() error) error {
 	e.lock.Lock()
 	e.started++
 	e.reservedCount = 0
 	e.queue = append(e.queue, f)
 	e.lock.Unlock()
-	done := ctx.Done()
 	for {
-		select { // check if done
-		case <-done:
-			return
-		default:
-		}
-
 		// acquire the queue
 		e.lock.Lock()
 		queue := e.queue
-		e.queue = make([]func(), 0, len(queue))
+		e.queue = make([]func() error, 0, len(queue))
 		reserved := e.reservedCount != 0
 		e.lock.Unlock()
 
 		if len(queue) == 0 {
 			if !reserved { // we have empty queue and nothing that reserved a spot
-				return
+				return nil
 			}
 			select { // wait until the reserved is done
-			case <-done:
-				return
 			case <-e.wakeupCh:
 			}
 		}
 
 		for _, f := range queue {
-			// run each function in the queue if not done
-			select {
-			case <-done:
-				return
-			default:
-				f()
+			if err := f(); err != nil {
+				return err
 			}
 		}
 	}

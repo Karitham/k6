@@ -21,7 +21,7 @@
 package js
 
 import (
-	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -32,18 +32,16 @@ func TestBasicEventLoop(t *testing.T) {
 	t.Parallel()
 	loop := newEventLoop()
 	var ran int
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	f := func() { ran++ }
-	loop.start(ctx, f)
+	f := func() error { ran++; return nil }
+	loop.start(f)
 	require.Equal(t, 1, ran)
-	loop.start(ctx, f)
+	loop.start(f)
 	require.Equal(t, 2, ran)
-	loop.start(ctx, func() {
+	require.Error(t, loop.start(func() error {
 		f()
 		loop.reserve()(f)
-		cancel()
-	})
+		return errors.New("somethjing")
+	}))
 	require.Equal(t, 3, ran)
 }
 
@@ -51,18 +49,18 @@ func TestEventLoopReserve(t *testing.T) {
 	t.Parallel()
 	loop := newEventLoop()
 	var ran int
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	start := time.Now()
-	loop.start(ctx, func() {
+	loop.start(func() error {
 		ran++
 		r := loop.reserve()
 		go func() {
 			time.Sleep(time.Second)
-			r(func() {
+			r(func() error {
 				ran++
+				return nil
 			})
 		}()
+		return nil
 	})
 	took := time.Since(start)
 	require.Equal(t, 2, ran)
@@ -74,35 +72,31 @@ func TestEventLoopReserveStopBetweenStarts(t *testing.T) {
 	t.Parallel()
 	loop := newEventLoop()
 	var ran int
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() {
-		time.Sleep(200 * time.Millisecond)
-		cancel()
-	}()
-	loop.start(ctx, func() {
+	loop.start(func() error {
 		ran++
 		r := loop.reserve()
 		go func() {
 			time.Sleep(time.Second)
-			r(func() {
+			r(func() error {
 				ran++
+				return nil
 			})
 		}()
+		return errors.New("something")
 	})
 	require.Equal(t, 1, ran)
 
-	ctx, cancel = context.WithCancel(context.Background())
-	defer cancel()
-	loop.start(ctx, func() {
+	loop.start(func() error {
 		ran++
 		r := loop.reserve()
 		go func() {
 			time.Sleep(time.Second)
-			r(func() {
+			r(func() error {
 				ran++
+				return nil
 			})
 		}()
+		return nil
 	})
 	require.Equal(t, 3, ran)
 }
