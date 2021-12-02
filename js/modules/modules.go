@@ -118,6 +118,9 @@ type VU interface {
 	// Reserve needs a better name
 	// MUST only be called while absolutely certain that something will not let the iteration end between the start and
 	// end of the call
+	// Because this blocs the event loop from returning and ending the iteration, it is important that the returned
+	// function is called eventually. It is the responsibility of the callee to call it for example on the main context
+	// being done which also allows it to do anykind of necessary cleanup
 	Reserve() func(func() error) bool
 
 	// sealing field will help probably with pointing users that they just need to embed this in their Instance

@@ -50,6 +50,8 @@ func (e *eventLoop) wakeup() {
 // since stopped it will return `false` and it will mean that this won't even be queued.
 // Even if it's queued it doesn't mean that it will definitely be executed.
 // this should be used instead of MakeHandledPromise if a promise will not be returned
+// The loop will *not* get unblocked until the function is called, so in the case of a main context being stopped it's
+// responsibility of the callee to execute the with an empty function *or* any other appropriate action
 // TODO better name
 func (e *eventLoop) reserve() func(func() error) bool {
 	e.lock.Lock()
