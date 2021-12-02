@@ -32,13 +32,15 @@ func TestBasicEventLoop(t *testing.T) {
 	t.Parallel()
 	loop := newEventLoop()
 	var ran int
-	f := func() error { ran++; return nil }
-	loop.start(f)
+	f := func() error { ran++; return nil } //nolint:unparam
+	require.NoError(t, loop.start(f))
 	require.Equal(t, 1, ran)
-	loop.start(f)
+	require.NoError(t, loop.start(f))
 	require.Equal(t, 2, ran)
 	require.Error(t, loop.start(func() error {
-		f()
+		if err := f(); err != nil {
+			return err
+		}
 		loop.reserve()(f)
 		return errors.New("somethjing")
 	}))
@@ -50,7 +52,7 @@ func TestEventLoopReserve(t *testing.T) {
 	loop := newEventLoop()
 	var ran int
 	start := time.Now()
-	loop.start(func() error {
+	require.NoError(t, loop.start(func() error {
 		ran++
 		r := loop.reserve()
 		go func() {
@@ -61,7 +63,7 @@ func TestEventLoopReserve(t *testing.T) {
 			})
 		}()
 		return nil
-	})
+	}))
 	took := time.Since(start)
 	require.Equal(t, 2, ran)
 	require.Less(t, time.Second, took)
@@ -72,7 +74,7 @@ func TestEventLoopReserveStopBetweenStarts(t *testing.T) {
 	t.Parallel()
 	loop := newEventLoop()
 	var ran int
-	loop.start(func() error {
+	require.Error(t, loop.start(func() error {
 		ran++
 		r := loop.reserve()
 		go func() {
@@ -83,10 +85,10 @@ func TestEventLoopReserveStopBetweenStarts(t *testing.T) {
 			})
 		}()
 		return errors.New("something")
-	})
+	}))
 	require.Equal(t, 1, ran)
 
-	loop.start(func() error {
+	require.NoError(t, loop.start(func() error {
 		ran++
 		r := loop.reserve()
 		go func() {
@@ -97,6 +99,6 @@ func TestEventLoopReserveStopBetweenStarts(t *testing.T) {
 			})
 		}()
 		return nil
-	})
+	}))
 	require.Equal(t, 3, ran)
 }

@@ -770,7 +770,9 @@ func (u *VU) runFn(
 	}
 
 	startTime := time.Now()
-	u.loop.start(func() error {
+
+	err = u.loop.start(func() (err error) {
+		// here the returned value purposefully shadows the external one as they can different
 		defer func() {
 			if r := recover(); r != nil {
 				gojaStack := u.Runtime.CaptureCallStack(20, nil)

@@ -75,7 +75,6 @@ func (e *eventLoop) reserve() func(func() error) bool {
 // start will run the event loop until it's empty and there are no reserved spots
 // or a queued function returns an error. The provided function will be queued.
 // After it returns any Reserved function from this start will not be queued even if the eventLoop is restarted
-//nolint:cyclop
 func (e *eventLoop) start(f func() error) error {
 	e.lock.Lock()
 	e.started++
@@ -94,9 +93,7 @@ func (e *eventLoop) start(f func() error) error {
 			if !reserved { // we have empty queue and nothing that reserved a spot
 				return nil
 			}
-			select { // wait until the reserved is done
-			case <-e.wakeupCh:
-			}
+			<-e.wakeupCh // wait until the reserved is done
 		}
 
 		for _, f := range queue {
