@@ -28,7 +28,6 @@ import (
 type eventLoop struct {
 	lock          sync.Mutex
 	queue         []func() error
-	started       int
 	wakeupCh      chan struct{} // maybe use sync.Cond ?
 	reservedCount int
 }
@@ -55,15 +54,10 @@ func (e *eventLoop) wakeup() {
 func (e *eventLoop) reserve() func(func() error) bool {
 	e.lock.Lock()
 	e.reservedCount++
-	started := e.started
 	e.lock.Unlock()
 
 	return func(f func() error) bool {
 		e.lock.Lock()
-		if started != e.started {
-			e.lock.Unlock()
-			return false
-		}
 		e.queue = append(e.queue, f)
 		e.reservedCount--
 		e.lock.Unlock()
@@ -77,7 +71,6 @@ func (e *eventLoop) reserve() func(func() error) bool {
 // After it returns any Reserved function from this start will not be queued even if the eventLoop is restarted
 func (e *eventLoop) start(f func() error) error {
 	e.lock.Lock()
-	e.started++
 	e.reservedCount = 0
 	e.queue = append(e.queue, f)
 	e.lock.Unlock()
