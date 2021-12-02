@@ -348,8 +348,16 @@ func (b *Bundle) instantiate(logger logrus.FieldLogger, rt *goja.Runtime, init *
 		// TODO support arguments ... maybe
 		runOnLoop := init.loop.reserve()
 		go func() {
-			time.Sleep(time.Duration(t * float64(time.Millisecond)))
-			runOnLoop(f)
+			timer := time.NewTimer(time.Duration(t * float64(time.Millisecond)))
+			select {
+			case <-timer.C:
+				runOnLoop(f)
+			case <-(*init.ctxPtr).Done():
+				// TODO log something?
+
+				timer.Stop()
+				runOnLoop(func() error { return nil })
+			}
 		}()
 	})
 	rt.Set("console", common.Bind(rt, newConsole(logger), init.ctxPtr))

@@ -128,6 +128,7 @@ func TestEventLoopCrossScenario(t *testing.T) {
 	t.Parallel()
 	// TODO refactor the repeating parts here and the previous test
 	script := []byte(`
+import exec from "k6/execution"
 export const options = {
         scenarios: {
                 "first":{
@@ -148,13 +149,13 @@ export const options = {
 }
 export default function() {
 	let i = exec.scenario.name
-	setTimeout(()=> {console.log(i)}, 5000)
+	setTimeout(()=> {console.log(i)}, 3000)
 }
 `)
 
 	logger := logrus.New()
 	logger.SetOutput(ioutil.Discard)
-	logHook := testutils.SimpleLogrusHook{HookedLevels: []logrus.Level{logrus.InfoLevel}}
+	logHook := testutils.SimpleLogrusHook{HookedLevels: []logrus.Level{logrus.ErrorLevel, logrus.WarnLevel, logrus.InfoLevel}}
 	logger.AddHook(&logHook)
 
 	registry := metrics.NewRegistry()
@@ -171,10 +172,9 @@ export default function() {
 		registry,
 	)
 	require.NoError(t, err)
-	runner.GetOptions()
+	options := runner.GetOptions()
 
-	ctx, cancel, execScheduler, samples := newTestExecutionScheduler(t, runner, logger,
-		lib.Options{})
+	ctx, cancel, execScheduler, samples := newTestExecutionScheduler(t, runner, logger, options)
 	defer cancel()
 
 	errCh := make(chan error, 1)
@@ -183,14 +183,12 @@ export default function() {
 	select {
 	case err := <-errCh:
 		require.NoError(t, err)
-		_, err = runner.HandleSummary(ctx, &lib.Summary{RootGroup: &lib.Group{}})
-		require.NoError(t, err)
 		entries := logHook.Drain()
 		msgs := make([]string, len(entries))
 		for i, entry := range entries {
 			msgs[i] = entry.Message
 		}
-		require.Equal(t, []string{}, msgs)
+		require.Equal(t, []string{"second"}, msgs)
 	case <-time.After(10 * time.Second):
 		t.Fatal("timed out")
 	}
