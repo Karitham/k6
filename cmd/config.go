@@ -249,6 +249,12 @@ func deriveAndValidateConfig(
 	if err != nil {
 		return result, err
 	}
+
+	err = validateThresholdsConfig(conf, registry)
+	if err != nil {
+		return result, err
+	}
+
 	return result, errext.WithExitCodeIfNone(err, exitcodes.InvalidConfig)
 }
 

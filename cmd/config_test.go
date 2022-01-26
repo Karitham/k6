@@ -32,7 +32,6 @@ import (
 	"go.k6.io/k6/lib"
 	"go.k6.io/k6/lib/executor"
 	"go.k6.io/k6/lib/metrics"
-	"go.k6.io/k6/lib/testutils"
 	"go.k6.io/k6/lib/types"
 	"go.k6.io/k6/stats"
 	"gopkg.in/guregu/null.v3"
@@ -205,7 +204,7 @@ func TestDeriveAndValidateConfig(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := deriveAndValidateConfig(tc.conf,
+			_, err := deriveAndValidateConfig(tc.conf, nil,
 				func(_ string) bool { return tc.isExec })
 			if tc.err != "" {
 				var ecerr errext.HasExitCode
@@ -220,6 +219,7 @@ func TestDeriveAndValidateConfig(t *testing.T) {
 }
 
 func TestValidateThresholdsConfigWithNilRegistry(t *testing.T) {
+	t.Parallel()
 	var registry *metrics.Registry
 	config := Config{}
 	var wantErrType errext.HasExitCode
@@ -231,6 +231,7 @@ func TestValidateThresholdsConfigWithNilRegistry(t *testing.T) {
 }
 
 func TestValidateThresholdsConfigAppliesToBuiltinMetrics(t *testing.T) {
+	t.Parallel()
 	// Prepare a registry loaded with builtin metrics
 	registry := metrics.NewRegistry()
 	metrics.RegisterBuiltinMetrics(registry)
