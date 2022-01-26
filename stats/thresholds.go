@@ -23,7 +23,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"go.k6.io/k6/lib/types"
@@ -40,8 +39,8 @@ type Threshold struct {
 	// AbortGracePeriod is a the minimum amount of time a test should be running before a failing
 	// this threshold will abort the test
 	AbortGracePeriod types.NullDuration
-	// parsed is the threshold expression parsed from the Source
-	parsed *thresholdExpression
+	// Parsed is the threshold expression Parsed from the Source
+	Parsed *thresholdExpression
 }
 
 func newThreshold(src string, abortOnFail bool, gracePeriod types.NullDuration) (*Threshold, error) {
@@ -54,46 +53,56 @@ func newThreshold(src string, abortOnFail bool, gracePeriod types.NullDuration) 
 		Source:           src,
 		AbortOnFail:      abortOnFail,
 		AbortGracePeriod: gracePeriod,
-		parsed:           parsedExpression,
+		Parsed:           parsedExpression,
 	}, nil
 }
 
 func (t *Threshold) runNoTaint(sinks map[string]float64) (bool, error) {
+	// Because aggregation method can either be a static keyword ("count", "rate", etc...),
+	// or a parametric expression ("p(somefloatingpointvalue)"), we need to handle this
+	// case specifically. If we encounter the percentile aggregation method token,
+	// we recompute the whole "p(value)" expression in order to look for it in the
+	// sinks.
+	sinkKey := t.Parsed.AggregationMethod
+	if t.Parsed.AggregationMethod == TokenPercentile {
+		sinkKey = fmt.Sprintf("%s(%v)", TokenPercentile, t.Parsed.AggregationValue.Float64)
+	}
+
 	// Extract the sink value for the aggregation method used in the threshold
 	// expression
-	lhs, ok := sinks[t.parsed.AggregationMethod]
+	lhs, ok := sinks[sinkKey]
 	if !ok {
 		return false, fmt.Errorf("unable to apply threshold %s over metrics; reason: "+
 			"no metric supporting the %s aggregation method found",
 			t.Source,
-			t.parsed.AggregationMethod)
+			t.Parsed.AggregationMethod)
 	}
 
 	// Apply the threshold expression operator to the left and
 	// right hand side values
 	var passes bool
-	switch t.parsed.Operator {
+	switch t.Parsed.Operator {
 	case ">":
-		passes = lhs > t.parsed.Value
+		passes = lhs > t.Parsed.Value
 	case ">=":
-		passes = lhs >= t.parsed.Value
+		passes = lhs >= t.Parsed.Value
 	case "<=":
-		passes = lhs <= t.parsed.Value
+		passes = lhs <= t.Parsed.Value
 	case "<":
-		passes = lhs < t.parsed.Value
+		passes = lhs < t.Parsed.Value
 	case "==", "===":
 		// Considering a sink always maps to float64 values,
 		// strictly equal is equivalent to loosely equal
-		passes = lhs == t.parsed.Value
+		passes = lhs == t.Parsed.Value
 	case "!=":
-		passes = lhs != t.parsed.Value
+		passes = lhs != t.Parsed.Value
 	default:
 		// The parseThresholdExpression function should ensure that no invalid
 		// operator gets through, but let's protect our future selves anyhow.
 		return false, fmt.Errorf("unable to apply threshold %s over metrics; "+
 			"reason: %s is an invalid operator",
 			t.Source,
-			t.parsed.Operator,
+			t.Parsed.Operator,
 		)
 	}
 
@@ -218,11 +227,12 @@ func (ts *Thresholds) Run(sink Sink, duration time.Duration) (bool, error) {
 		// Parse the percentile thresholds and insert them in
 		// the sinks mapping.
 		for _, threshold := range ts.Thresholds {
-			if !strings.HasPrefix(threshold.parsed.AggregationMethod, "p(") {
+			if threshold.Parsed.AggregationMethod != TokenPercentile {
 				continue
 			}
 
-			ts.sinked[threshold.parsed.AggregationMethod] = sinkImpl.P(threshold.parsed.AggregationValue.Float64 / 100)
+			key := fmt.Sprintf("p(%v)", threshold.Parsed.AggregationValue)
+			ts.sinked[key] = sinkImpl.P(threshold.Parsed.AggregationValue.Float64 / 100)
 		}
 	case *RateSink:
 		ts.sinked["rate"] = float64(sinkImpl.Trues) / float64(sinkImpl.Total)

@@ -21,12 +21,16 @@
 package stats
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"gopkg.in/guregu/null.v3"
 )
+
+// ErrThresholdParsing is returned by failing threshold parsing operations.
+var ErrThresholdParsing = errors.New("parsing threshold expression failed")
 
 // thresholdExpression holds the parsed result of a threshold expression,
 // as described in: https://k6.io/docs/using-k6/thresholds/#threshold-syntax
@@ -73,17 +77,23 @@ func parseThresholdExpression(input string) (*thresholdExpression, error) {
 	// checks that the expression has the right format.
 	method, operator, value, err := scanThresholdExpression(input)
 	if err != nil {
-		return nil, fmt.Errorf("failed parsing threshold expression; reason: %w", err)
+		return nil, fmt.Errorf("%w '%s'; reason: %v", ErrThresholdParsing, input, err)
 	}
 
 	parsedMethod, parsedMethodValue, err := parseThresholdAggregationMethod(method)
 	if err != nil {
-		return nil, fmt.Errorf("failed parsing threshold expression's left hand side; reason: %w", err)
+		return nil, fmt.Errorf("%w '%s'; reason: %v", ErrThresholdParsing, input, err)
 	}
 
 	parsedValue, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		return nil, fmt.Errorf("failed parsing threshold expresion's right hand side; reason: %w", err)
+		return nil, fmt.Errorf(
+			"%w '%s', right hand side could not be parsed as a "+
+				"64-bit precision floating point value; reason: %v",
+			ErrThresholdParsing,
+			input,
+			err,
+		)
 	}
 
 	condition := &thresholdExpression{
@@ -142,20 +152,23 @@ func scanThresholdExpression(input string) (string, string, string, error) {
 		}
 	}
 
-	return "", "", "", fmt.Errorf("malformed threshold expression")
+	return "", "", "", fmt.Errorf(
+		"no valid operator found in the threshold expression. " +
+			"valid operators are: <, <=, >, >=, ==, !=, ===",
+	)
 }
 
 // Define accepted threshold expression aggregation tokens
 // Percentile token `p(..)` is accepted too but handled separately.
 const (
-	tokenValue      = "value"
-	tokenCount      = "count"
-	tokenRate       = "rate"
-	tokenAvg        = "avg"
-	tokenMin        = "min"
-	tokenMed        = "med"
-	tokenMax        = "max"
-	tokenPercentile = "p"
+	TokenValue      = "value"
+	TokenCount      = "count"
+	TokenRate       = "rate"
+	TokenAvg        = "avg"
+	TokenMin        = "min"
+	TokenMed        = "med"
+	TokenMax        = "max"
+	TokenPercentile = "p"
 )
 
 // aggregationMethodTokens defines the list of aggregation method
@@ -165,14 +178,14 @@ const (
 // Although declared as a `var`, being an array, it is effectively
 // immutable and can be considered constant.
 var aggregationMethodTokens = [8]string{ // nolint:gochecknoglobals
-	tokenValue,
-	tokenCount,
-	tokenRate,
-	tokenAvg,
-	tokenMin,
-	tokenMed,
-	tokenMax,
-	tokenPercentile,
+	TokenValue,
+	TokenCount,
+	TokenRate,
+	TokenAvg,
+	TokenMin,
+	TokenMed,
+	TokenMax,
+	TokenPercentile,
 }
 
 // parseThresholdMethod will parse a threshold condition expression's method.
@@ -186,21 +199,21 @@ func parseThresholdAggregationMethod(input string) (string, null.Float, error) {
 		// Percentile expressions being of the form p(value),
 		// they won't be matched here.
 		if m == input {
-			return input, null.Float{}, nil
+			return m, null.Float{}, nil
 		}
 	}
 
 	// Otherwise, attempt to parse a percentile expression
-	if strings.HasPrefix(input, tokenPercentile+"(") && strings.HasSuffix(input, ")") {
+	if strings.HasPrefix(input, TokenPercentile+"(") && strings.HasSuffix(input, ")") {
 		aggregationValue, err := strconv.ParseFloat(trimDelimited("p(", input, ")"), 64)
 		if err != nil {
 			return "", null.Float{}, fmt.Errorf("malformed percentile value; reason: %w", err)
 		}
 
-		return input, null.FloatFrom(aggregationValue), nil
+		return TokenPercentile, null.FloatFrom(aggregationValue), nil
 	}
 
-	return "", null.Float{}, fmt.Errorf("failed parsing method from expression")
+	return "", null.Float{}, fmt.Errorf("no valid aggregation method found in the threshold expression")
 }
 
 func trimDelimited(prefix, input, suffix string) string {
