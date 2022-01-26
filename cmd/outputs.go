@@ -83,7 +83,7 @@ func getPossibleIDList(constrs map[string]func(output.Params) (output.Output, er
 
 func createOutputs(
 	outputFullArguments []string, src *loader.SourceData, conf Config, rtOpts lib.RuntimeOptions,
-	executionPlan []lib.ExecutionStep, osEnvironment map[string]string, logger logrus.FieldLogger,
+	executionPlan []lib.ExecutionStep, osEnvironment map[string]string, logger logrus.FieldLogger, fl *commandFlags,
 ) ([]output.Output, error) {
 	outputConstructors, err := getAllOutputConstructors()
 	if err != nil {
@@ -93,8 +93,8 @@ func createOutputs(
 		ScriptPath:     src.URL,
 		Logger:         logger,
 		Environment:    osEnvironment,
-		StdOut:         stdout,
-		StdErr:         stderr,
+		StdOut:         fl.stdout,
+		StdErr:         fl.stderr,
 		FS:             afero.NewOsFs(),
 		ScriptOptions:  conf.Options,
 		RuntimeOptions: rtOpts,

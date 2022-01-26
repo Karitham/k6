@@ -49,7 +49,7 @@ func getPauseCmd(ctx context.Context, fl *commandFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return yamlPrint(stdout, status)
+			return yamlPrint(fl.stdout, status)
 		},
 	}
 	return pauseCmd

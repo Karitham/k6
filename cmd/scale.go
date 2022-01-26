@@ -54,7 +54,7 @@ func getScaleCmd(ctx context.Context, fl *commandFlags) *cobra.Command {
 				return err
 			}
 
-			return yamlPrint(stdout, status)
+			return yamlPrint(fl.stdout, status)
 		},
 	}
 
