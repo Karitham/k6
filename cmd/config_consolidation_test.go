@@ -22,7 +22,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -541,13 +540,18 @@ func runTestCase(
 	t *testing.T,
 	testCase configConsolidationTestCase,
 	newFlagSet flagSetInit,
-	logHook *testutils.SimpleLogrusHook,
 ) {
 	t.Helper()
 	t.Logf("Test with opts=%#v and exp=%#v\n", testCase.options, testCase.expected)
 	output := testutils.NewTestOutput(t)
-	logrus.SetOutput(output)
+	logHook := &testutils.SimpleLogrusHook{
+		HookedLevels: []logrus.Level{logrus.WarnLevel},
+	}
+
 	logHook.Drain()
+	logger := logrus.New()
+	logger.AddHook(logHook)
+	logger.SetOutput(output)
 
 	flagSet, fl := newFlagSet()
 	flagSet.SetOutput(output)
@@ -594,7 +598,7 @@ func runTestCase(
 	require.NoError(t, err)
 
 	derivedConfig := consolidatedConfig
-	derivedConfig.Options, err = executor.DeriveScenariosFromShortcuts(consolidatedConfig.Options)
+	derivedConfig.Options, err = executor.DeriveScenariosFromShortcuts(consolidatedConfig.Options, logger)
 	if testCase.expected.derivationError {
 		require.Error(t, err)
 		return
@@ -619,15 +623,8 @@ func runTestCase(
 	}
 }
 
-//nolint:paralleltest // see comments in test
 func TestConfigConsolidation(t *testing.T) {
-	// This test and its subtests shouldn't be ran in parallel, since they unfortunately have
-	// to mess with shared global objects (env vars, variables, the log, ... santa?)
-	logHook := testutils.SimpleLogrusHook{HookedLevels: []logrus.Level{logrus.WarnLevel}}
-	logrus.AddHook(&logHook)
-	logrus.SetOutput(ioutil.Discard)
-	defer logrus.SetOutput(os.Stderr)
-
+	t.Parallel()
 	for tcNum, testCase := range getConfigConsolidationTestCases() {
 		tcNum, testCase := tcNum, testCase
 		flagSetInits := testCase.options.cliFlagSetInits
@@ -640,7 +637,10 @@ func TestConfigConsolidation(t *testing.T) {
 			fsNum, flagSet := fsNum, flagSet
 			t.Run(
 				fmt.Sprintf("TestCase#%d_FlagSet#%d", tcNum, fsNum),
-				func(t *testing.T) { runTestCase(t, testCase, flagSet, &logHook) },
+				func(t *testing.T) {
+					t.Parallel()
+					runTestCase(t, testCase, flagSet)
+				},
 			)
 		}
 	}
