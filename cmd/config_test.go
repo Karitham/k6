@@ -26,13 +26,16 @@ import (
 
 	"github.com/mstoykov/envconfig"
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/guregu/null.v3"
-
+	"github.com/stretchr/testify/require"
 	"go.k6.io/k6/errext"
 	"go.k6.io/k6/errext/exitcodes"
 	"go.k6.io/k6/lib"
 	"go.k6.io/k6/lib/executor"
+	"go.k6.io/k6/lib/metrics"
+	"go.k6.io/k6/lib/testutils"
 	"go.k6.io/k6/lib/types"
+	"go.k6.io/k6/stats"
+	"gopkg.in/guregu/null.v3"
 )
 
 type testCmdData struct {
@@ -214,4 +217,117 @@ func TestDeriveAndValidateConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateThresholdsConfigWithNilRegistry(t *testing.T) {
+	var registry *metrics.Registry
+	config := Config{}
+	var wantErrType errext.HasExitCode
+
+	gotErr := validateThresholdsConfig(config, registry)
+
+	assert.Error(t, gotErr, "validateThresholdsConfig should fail when passed registry is nil")
+	assert.ErrorAs(t, gotErr, &wantErrType, "validateThresholdsConfig error should be an instance of errext.HasExitCode")
+}
+
+func TestValidateThresholdsConfigAppliesToBuiltinMetrics(t *testing.T) {
+	// Prepare a registry loaded with builtin metrics
+	registry := metrics.NewRegistry()
+	metrics.RegisterBuiltinMetrics(registry)
+
+	// Assuming builtin metrics are indeed registered, and
+	// thresholds parsing works as expected, we prepare
+	// thresholds for a counter builting metric; namely http_reqs
+	HTTPReqsThresholds, err := stats.NewThresholds([]string{"count>0", "rate>1"})
+	require.NoError(t, err, "instantiating Thresholds with expression 'count>0' should not fail")
+	options := lib.Options{
+		Thresholds: map[string]stats.Thresholds{
+			metrics.HTTPReqsName: HTTPReqsThresholds,
+		},
+	}
+	config := Config{Options: options}
+
+	gotErr := validateThresholdsConfig(config, registry)
+
+	assert.NoError(t, gotErr, "validateThresholdsConfig should not fail against builtin metrics")
+}
+
+func TestValidateThresholdsConfigAppliesToCustomMetrics(t *testing.T) {
+	t.Parallel()
+
+	// Prepare a registry loaded with both builtin metrics,
+	// and a custom counter metric.
+	testCounterMetricName := "testcounter"
+	registry := metrics.NewRegistry()
+	metrics.RegisterBuiltinMetrics(registry)
+	_, err := registry.NewMetric(testCounterMetricName, stats.Counter)
+	require.NoError(t, err, "registering custom counter metric should not fail")
+
+	// Prepare a configuration containing a Threshold
+	counterThresholds, err := stats.NewThresholds([]string{"count>0", "rate>1"})
+	require.NoError(t, err, "instantiating Thresholds with expression 'count>0' should not fail")
+	options := lib.Options{
+		Thresholds: map[string]stats.Thresholds{
+			testCounterMetricName: counterThresholds,
+		},
+	}
+	config := Config{Options: options}
+
+	gotErr := validateThresholdsConfig(config, registry)
+
+	// Assert
+	assert.NoError(t, gotErr, "validateThresholdsConfig should not fail against existing and valid custom metric")
+}
+
+func TestValidateThresholdsConfigFailsOnNonExistingMetric(t *testing.T) {
+	t.Parallel()
+
+	// Prepare a registry loaded with builtin metrics only
+	registry := metrics.NewRegistry()
+	metrics.RegisterBuiltinMetrics(registry)
+
+	// Prepare a configuration containing a Threshold applying to
+	// a non-existing metric
+	counterThresholds, err := stats.NewThresholds([]string{"count>0", "rate>1"})
+	require.NoError(t, err, "instantiating Thresholds with expression 'count>0' should not fail")
+	options := lib.Options{
+		Thresholds: map[string]stats.Thresholds{
+			"nonexisting": counterThresholds,
+		},
+	}
+	config := Config{Options: options}
+	var wantErrType errext.HasExitCode
+
+	gotErr := validateThresholdsConfig(config, registry)
+
+	// Assert
+	assert.Error(t, gotErr, "validateThresholdsConfig should fail on thresholds applied to a non-existing metric")
+	assert.ErrorAs(t, gotErr, &wantErrType, "validateThresholdsConfig error should be an instance of errext.HasExitCode")
+}
+
+func TestValidateThresholdsConfigFailsOnThresholdInvalidMetricType(t *testing.T) {
+	t.Parallel()
+
+	// Prepare a registry loaded with builtin metrics only
+	registry := metrics.NewRegistry()
+	metrics.RegisterBuiltinMetrics(registry)
+
+	// Prepare a configuration containing a Threshold using a Counter metric
+	// specific aggregation method, against a metric of type Gauge: which doesn't support
+	// that method.
+	VUsThresholds, err := stats.NewThresholds([]string{"count>0"})
+	require.NoError(t, err, "instantiating Thresholds with expression 'count>0' should not fail")
+	options := lib.Options{
+		Thresholds: map[string]stats.Thresholds{
+			metrics.VUsName: VUsThresholds,
+		},
+	}
+	config := Config{Options: options}
+	var wantErrType errext.HasExitCode
+
+	gotErr := validateThresholdsConfig(config, registry)
+
+	// Assert
+	assert.Error(t, gotErr, "validateThresholdsConfig should fail applying the count method to a Gauge metric")
+	assert.ErrorAs(t, gotErr, &wantErrType, "validateThresholdsConfig error should be an instance of errext.HasExitCode")
 }

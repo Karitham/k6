@@ -37,6 +37,7 @@ import (
 	"go.k6.io/k6/errext/exitcodes"
 	"go.k6.io/k6/lib"
 	"go.k6.io/k6/lib/executor"
+	"go.k6.io/k6/lib/metrics"
 	"go.k6.io/k6/lib/types"
 	"go.k6.io/k6/stats"
 )
@@ -233,11 +234,20 @@ func applyDefault(conf Config) Config {
 	return conf
 }
 
-func deriveAndValidateConfig(conf Config, isExecutable func(string) bool) (result Config, err error) {
+func deriveAndValidateConfig(
+	conf Config,
+	registry *metrics.Registry,
+	isExecutable func(string) bool,
+) (result Config, err error) {
 	result = conf
 	result.Options, err = executor.DeriveScenariosFromShortcuts(conf.Options)
-	if err == nil {
-		err = validateConfig(result, isExecutable)
+	if err != nil {
+		return result, err
+	}
+
+	err = validateConfig(result, isExecutable)
+	if err != nil {
+		return result, err
 	}
 	return result, errext.WithExitCodeIfNone(err, exitcodes.InvalidConfig)
 }
@@ -272,5 +282,101 @@ func validateScenarioConfig(conf lib.ExecutorConfig, isExecutable func(string) b
 	if !isExecutable(execFn) {
 		return fmt.Errorf("executor %s: function '%s' not found in exports", conf.GetName(), execFn)
 	}
+	return nil
+}
+
+func validateThresholdsConfig(
+	conf Config,
+	registry *metrics.Registry,
+) error {
+	// Registry should not be nil under any circumstances.
+	// N.B: the reason for passing it as a pointer in the first place is
+	// because it holds a Mutex, which effectively forbids passing it by value.
+	if registry == nil {
+		err := fmt.Errorf(
+			"unable to validate thresholds configuration; reason: " +
+				"provided registry is nil. It looks like you have found a bug, " +
+				"please open an issue on our GitHub: " +
+				"https://github.com/grafana/k6/issues/new?assignees=&labels=bug&template=bug.yaml",
+		)
+		return errext.WithExitCodeIfNone(err, exitcodes.InvalidConfig)
+	}
+
+	// Focusing on builtin metric for now. For each threshold,
+	// found in the options, do we have a matching builtin metric?
+	for name, thresholds := range conf.Thresholds {
+		metric, ok := registry.Get(name)
+
+		// The defined threshold applies to a non-existing metrics
+		if !ok {
+			err := fmt.Errorf("invalid threshold defined on %s; reason: no metric named %s found", name, name)
+			return errext.WithExitCodeIfNone(err, exitcodes.InvalidConfig)
+		}
+
+		switch metric.Type {
+		case stats.Counter:
+			supportedMethods := []string{stats.TokenCount, stats.TokenRate}
+
+			for _, threshold := range thresholds.Thresholds {
+				if !lib.Contains(supportedMethods, threshold.Parsed.AggregationMethod) {
+					// if threshold.Parsed.AggregationMethod != stats.TokenCount &&
+					// 	threshold.Parsed.AggregationMethod != stats.TokenRate {
+					err := fmt.Errorf(
+						"invalid threshold expression %s: '%s'; "+
+							"reason: invalid aggregation method '%s' applied to the '%s' metric. "+
+							"%s is a metric of type Counter, did you mean to use the any of the "+
+							"'count' or 'rate' aggregation methods instead?",
+						name, threshold.Source, threshold.Parsed.AggregationMethod, name, name,
+					)
+					return errext.WithExitCodeIfNone(err, exitcodes.InvalidConfig)
+				}
+			}
+		case stats.Gauge:
+			for _, threshold := range thresholds.Thresholds {
+				if threshold.Parsed.AggregationMethod != stats.TokenValue {
+					err := fmt.Errorf(
+						"invalid threshold expression %s: '%s'; "+
+							"reason: invalid aggregation method '%s' applied to the '%s' metric. "+
+							"%s is a metric of type Gauge, did you mean to use the 'value' aggregation method instead?",
+						name, threshold.Source, threshold.Parsed.AggregationMethod, name, name,
+					)
+					return errext.WithExitCodeIfNone(err, exitcodes.InvalidConfig)
+				}
+			}
+		case stats.Rate:
+			for _, threshold := range thresholds.Thresholds {
+				if threshold.Parsed.AggregationMethod != stats.TokenRate {
+					err := fmt.Errorf(
+						"invalid threshold expression %s: '%s'; "+
+							"reason: invalid aggregation method '%s' applied to the '%s' metric. "+
+							"%s is a metric of type Rate, did you mean to use the 'rate' aggregation method instead?",
+						name, threshold.Source, threshold.Parsed.AggregationMethod, name, name,
+					)
+					return errext.WithExitCodeIfNone(err, exitcodes.InvalidConfig)
+				}
+			}
+		case stats.Trend:
+			supportedMethods := []string{
+				stats.TokenAvg,
+				stats.TokenMin,
+				stats.TokenMax,
+				stats.TokenMed,
+				stats.TokenPercentile,
+			}
+			for _, threshold := range thresholds.Thresholds {
+				if !lib.Contains(supportedMethods, threshold.Parsed.AggregationMethod) {
+					err := fmt.Errorf(
+						"invalid threshold expression %s: '%s'; "+
+							"reason: invalid aggregation method '%s' applied to the '%s' metric. "+
+							"%s is a metric of type Trend, did you mean to use any of the "+
+							"'avg', 'min', 'med', or 'p(N)' aggregation methods instead?",
+						name, threshold.Source, threshold.Parsed.AggregationMethod, name, name,
+					)
+					return errext.WithExitCodeIfNone(err, exitcodes.InvalidConfig)
+				}
+			}
+		}
+	}
+
 	return nil
 }
