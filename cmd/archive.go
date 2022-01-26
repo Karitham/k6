@@ -31,9 +31,6 @@ import (
 	"go.k6.io/k6/lib/metrics"
 )
 
-//nolint:gochecknoglobals
-var archiveOut = "archive.tar"
-
 func getArchiveCmd(logger *logrus.Logger, fl *commandFlags) *cobra.Command {
 	// archiveCmd represents the archive command
 	archiveCmd := &cobra.Command{
@@ -62,7 +59,7 @@ An archive is a fully self-contained test run, and can be executed identically e
 
 			registry := metrics.NewRegistry()
 			builtinMetrics := metrics.RegisterBuiltinMetrics(registry)
-			r, err := newRunner(logger, src, runType, filesystems, runtimeOptions, builtinMetrics, registry)
+			r, err := newRunner(logger, src, fl.runType, filesystems, runtimeOptions, builtinMetrics, registry)
 			if err != nil {
 				return err
 			}
@@ -90,7 +87,7 @@ An archive is a fully self-contained test run, and can be executed identically e
 
 			// Archive.
 			arc := r.MakeArchive()
-			f, err := os.Create(archiveOut)
+			f, err := os.Create(fl.archiveOut)
 			if err != nil {
 				return err
 			}
@@ -99,17 +96,16 @@ An archive is a fully self-contained test run, and can be executed identically e
 	}
 
 	archiveCmd.Flags().SortFlags = false
-	archiveCmd.Flags().AddFlagSet(archiveCmdFlagSet())
+	archiveCmd.Flags().AddFlagSet(archiveCmdFlagSet(fl))
 
 	return archiveCmd
 }
 
-func archiveCmdFlagSet() *pflag.FlagSet {
+func archiveCmdFlagSet(fl *commandFlags) *pflag.FlagSet {
 	flags := pflag.NewFlagSet("", pflag.ContinueOnError)
 	flags.SortFlags = false
 	flags.AddFlagSet(optionFlagSet())
 	flags.AddFlagSet(runtimeOptionFlagSet(false))
-	// TODO: figure out a better way to handle the CLI flags - global variables are not very testable... :/
-	flags.StringVarP(&archiveOut, "archive-out", "O", archiveOut, "archive output filename")
+	flags.StringVarP(&fl.archiveOut, "archive-out", "O", fl.archiveOut, "archive output filename")
 	return flags
 }

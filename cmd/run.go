@@ -59,10 +59,6 @@ const (
 	typeArchive = "archive"
 )
 
-// TODO: fix this, global variables are not very testable...
-//nolint:gochecknoglobals
-var runType = os.Getenv("K6_TYPE")
-
 //nolint:funlen,gocognit,gocyclo,cyclop
 func getRunCmd(ctx context.Context, logger *logrus.Logger, fl *commandFlags) *cobra.Command {
 	// runCmd represents the run command.
@@ -94,7 +90,7 @@ a commandline interface for interacting with it.`,
 		Args: exactArgsWithMsg(1, "arg should either be \"-\", if reading script from stdin, or a path to a script file"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// TODO: disable in quiet mode?
-			_, _ = fmt.Fprintf(stdout, "\n%s\n\n", getBanner(noColor || !stdoutTTY))
+			_, _ = fmt.Fprintf(stdout, "\n%s\n\n", getBanner(fl.noColor || !stdoutTTY))
 
 			logger.Debug("Initializing the runner...")
 
@@ -112,7 +108,7 @@ a commandline interface for interacting with it.`,
 
 			registry := metrics.NewRegistry()
 			builtinMetrics := metrics.RegisterBuiltinMetrics(registry)
-			initRunner, err := newRunner(logger, src, runType, filesystems, runtimeOptions, builtinMetrics, registry)
+			initRunner, err := newRunner(logger, src, fl.runType, filesystems, runtimeOptions, builtinMetrics, registry)
 			if err != nil {
 				return common.UnwrapGojaInterruptedError(err)
 			}
@@ -176,7 +172,7 @@ a commandline interface for interacting with it.`,
 				for _, s := range execScheduler.GetExecutors() {
 					pbs = append(pbs, s.GetProgress())
 				}
-				showProgress(progressCtx, pbs, logger)
+				showProgress(progressCtx, pbs, logger, fl)
 				progressBarWG.Done()
 			}()
 
@@ -195,11 +191,11 @@ a commandline interface for interacting with it.`,
 			}
 
 			// Spin up the REST API server, if not disabled.
-			if address != "" {
+			if fl.address != "" {
 				initBar.Modify(pb.WithConstProgress(0, "Init API server"))
 				go func() {
-					logger.Debugf("Starting the REST API server on %s", address)
-					if aerr := api.ListenAndServe(address, engine, logger); aerr != nil {
+					logger.Debugf("Starting the REST API server on %s", fl.address)
+					if aerr := api.ListenAndServe(fl.address, engine, logger); aerr != nil {
 						// Only exit k6 if the user has explicitly set the REST API address
 						if cmd.Flags().Lookup("address").Changed {
 							logger.WithError(aerr).Error("Error from API server")
@@ -221,7 +217,7 @@ a commandline interface for interacting with it.`,
 
 			printExecutionDescription(
 				"local", args[0], "", conf, execScheduler.GetState().ExecutionTuple,
-				executionPlan, outputs, noColor || !stdoutTTY)
+				executionPlan, outputs, fl.noColor || !stdoutTTY)
 
 			// Trap Interrupts, SIGINTs and SIGTERMs.
 			sigC := make(chan os.Signal, 1)
@@ -299,7 +295,7 @@ a commandline interface for interacting with it.`,
 					Metrics:         engine.Metrics,
 					RootGroup:       engine.ExecutionScheduler.GetRunner().GetDefaultGroup(),
 					TestRunDuration: executionState.GetCurrentTestRunDuration(),
-					NoColor:         noColor,
+					NoColor:         fl.noColor,
 					UIState: lib.UIState{
 						IsStdOutTTY: stdoutTTY,
 						IsStdErrTTY: stderrTTY,
@@ -339,7 +335,7 @@ a commandline interface for interacting with it.`,
 	}
 
 	runCmd.Flags().SortFlags = false
-	runCmd.Flags().AddFlagSet(runCmdFlagSet())
+	runCmd.Flags().AddFlagSet(runCmdFlagSet(fl))
 
 	return runCmd
 }
@@ -375,7 +371,7 @@ func reportUsage(execScheduler *local.ExecutionScheduler) error {
 	return err
 }
 
-func runCmdFlagSet() *pflag.FlagSet {
+func runCmdFlagSet(fl *commandFlags) *pflag.FlagSet {
 	flags := pflag.NewFlagSet("", pflag.ContinueOnError)
 	flags.SortFlags = false
 	flags.AddFlagSet(optionFlagSet())
@@ -389,7 +385,7 @@ func runCmdFlagSet() *pflag.FlagSet {
 	//   that will be used in the help/usage message - if we don't set it, the environment
 	//   variables will affect the usage message
 	// - and finally, global variables are not very testable... :/
-	flags.StringVarP(&runType, "type", "t", runType, "override file `type`, \"js\" or \"archive\"")
+	flags.StringVarP(&fl.runType, "type", "t", fl.runType, "override file `type`, \"js\" or \"archive\"")
 	flags.Lookup("type").DefValue = ""
 	return flags
 }

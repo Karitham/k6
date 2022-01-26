@@ -135,13 +135,13 @@ func mostFlagSets() []flagSetInit {
 	// getConsolidatedConfig() is used, but they also have differences in their CLI flags :/
 	// sigh... compromises...
 	result := []flagSetInit{}
-	for i, fsi := range []func() *pflag.FlagSet{runCmdFlagSet, archiveCmdFlagSet, cloudCmdFlagSet} {
+	for i, fsi := range []func(fl *commandFlags) *pflag.FlagSet{runCmdFlagSet, archiveCmdFlagSet, cloudCmdFlagSet} {
 		i, fsi := i, fsi // go...
 		root := newRootCommand(context.Background(), nil, nil)
 		result = append(result, func() (*pflag.FlagSet, *commandFlags) {
 			flags := pflag.NewFlagSet(fmt.Sprintf("superContrivedFlags_%d", i), pflag.ContinueOnError)
 			flags.AddFlagSet(root.rootCmdPersistentFlagSet())
-			flags.AddFlagSet(fsi())
+			flags.AddFlagSet(fsi(root.commandFlags))
 			return flags, root.commandFlags
 		})
 	}
@@ -179,12 +179,6 @@ type opts struct {
 	// issues on its own, and the func() doesn't help at all, and we need to
 	// use the resetStickyGlobalVars() hack on top of that...
 	cliFlagSetInits []flagSetInit
-}
-
-func resetStickyGlobalVars() {
-	// TODO: remove after fixing the config, obviously a dirty hack
-	exitOnRunning = false
-	runType = ""
 }
 
 // exp contains the different events or errors we expect our test case to trigger.
@@ -556,7 +550,6 @@ func runTestCase(
 	logHook.Drain()
 
 	flagSet, fl := newFlagSet()
-	defer resetStickyGlobalVars()
 	flagSet.SetOutput(output)
 	// flagSet.PrintDefaults()
 
